@@ -59,6 +59,12 @@ const server = http.createServer(async (req, res) => {
     const parsedUrl = new URL(targetUrl);
     const invoiceBody = JSON.stringify(invoice);
 
+    // Combine provided CAs with Node.js built-in root certificates
+    const combinedCa = [
+      ...tls.rootCertificates,
+      ...(caCerts && caCerts.length > 0 ? caCerts : []),
+    ];
+
     const options = {
       hostname: parsedUrl.hostname,
       port: 443,
@@ -71,29 +77,9 @@ const server = http.createServer(async (req, res) => {
       },
       cert: cert,
       key: key,
-      // Combine provided CAs with Node.js built-in root certificates
-      // This ensures the FRCS server cert can be verified even if its root CA
-      // isn't in the provided caCerts (e.g. a well-known public root CA)
-      const combinedCa = [
-        ...tls.rootCertificates,
-        ...(caCerts && caCerts.length > 0 ? caCerts : []),
-      ];
-
-      const options = {
-        hostname: parsedUrl.hostname,
-        port: 443,
-        path: parsedUrl.pathname,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(invoiceBody),
-          ...(pac ? { PAC: pac } : {}),
-        },
-        cert: cert,
-        key: key,
-        ca: combinedCa,
-        rejectUnauthorized: true,
-      };
+      ca: combinedCa,
+      rejectUnauthorized: true,
+    };
 
     console.log(`[${new Date().toISOString()}] Proxying to ${targetUrl}`);
 
@@ -105,7 +91,6 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(proxyRes.statusCode, {
           "Content-Type": "application/json",
         });
-        // Forward the raw FRCS response
         try {
           const parsed = JSON.parse(data);
           res.end(
