@@ -1,0 +1,12 @@
+{
+  "name": "vsdc-mtls-proxy",
+  "version": "1.0.0",
+  "description": "mTLS proxy for Fiji FRCS V-SDC fiscalization",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
