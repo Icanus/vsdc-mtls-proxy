@@ -1,5 +1,6 @@
 const https = require("https");
 const http = require("http");
+const tls = require("tls");
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.PROXY_API_KEY;
@@ -70,9 +71,29 @@ const server = http.createServer(async (req, res) => {
       },
       cert: cert,
       key: key,
-      ca: caCerts && caCerts.length > 0 ? caCerts : undefined,
-      rejectUnauthorized: true,
-    };
+      // Combine provided CAs with Node.js built-in root certificates
+      // This ensures the FRCS server cert can be verified even if its root CA
+      // isn't in the provided caCerts (e.g. a well-known public root CA)
+      const combinedCa = [
+        ...tls.rootCertificates,
+        ...(caCerts && caCerts.length > 0 ? caCerts : []),
+      ];
+
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: 443,
+        path: parsedUrl.pathname,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(invoiceBody),
+          ...(pac ? { PAC: pac } : {}),
+        },
+        cert: cert,
+        key: key,
+        ca: combinedCa,
+        rejectUnauthorized: true,
+      };
 
     console.log(`[${new Date().toISOString()}] Proxying to ${targetUrl}`);
 
