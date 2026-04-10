@@ -20,7 +20,7 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ status: "ok" }));
   }
 
-  // Only accept POST /proxy/vsdc
+  // Only accept POST /proxy/vsdc or POST /proxy/vsdc-get
   if (req.method !== "POST" || !req.url.startsWith("/proxy/vsdc")) {
     res.writeHead(404, { "Content-Type": "application/json" });
     return res.end(JSON.stringify({ error: "Not found" }));
@@ -46,6 +46,72 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ error: "Invalid JSON" }));
   }
 
+  // ===== GET proxy route (for fetching tax rates, etc.) =====
+  if (req.url.startsWith("/proxy/vsdc-get")) {
+    const { targetUrl, pac, cert, key, caCerts } = payload;
+
+    if (!targetUrl || !cert || !key) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      return res.end(
+        JSON.stringify({ error: "Missing required fields: targetUrl, cert, key" })
+      );
+    }
+
+    try {
+      const parsedUrl = new URL(targetUrl);
+      const combinedCa = [
+        ...tls.rootCertificates,
+        ...(caCerts && caCerts.length > 0 ? caCerts : []),
+      ];
+
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: 443,
+        path: parsedUrl.pathname + (parsedUrl.search || ""),
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          ...(pac ? { PAC: pac } : {}),
+        },
+        cert: cert,
+        key: key,
+        ca: combinedCa,
+        rejectUnauthorized: true,
+      };
+
+      console.log(`[${new Date().toISOString()}] GET proxy to ${targetUrl}`);
+
+      const proxyReq = https.request(options, (proxyRes) => {
+        let data = "";
+        proxyRes.on("data", (chunk) => (data += chunk));
+        proxyRes.on("end", () => {
+          console.log(`[${new Date().toISOString()}] FRCS GET responded: ${proxyRes.statusCode}`);
+          res.writeHead(proxyRes.statusCode, { "Content-Type": "application/json" });
+          try {
+            const parsed = JSON.parse(data);
+            res.end(JSON.stringify({ statusCode: proxyRes.statusCode, vsdcResponse: parsed }));
+          } catch {
+            res.end(JSON.stringify({ statusCode: proxyRes.statusCode, vsdcResponse: data }));
+          }
+        });
+      });
+
+      proxyReq.on("error", (err) => {
+        console.error(`[${new Date().toISOString()}] GET proxy error:`, err.message);
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Proxy request failed", details: err.message }));
+      });
+
+      proxyReq.end();
+    } catch (err) {
+      console.error(`[${new Date().toISOString()}] Server error:`, err.message);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // ===== POST proxy route (for invoice submission) =====
   const { targetUrl, pac, cert, key, caCerts, invoice } = payload;
 
   if (!targetUrl || !cert || !key || !invoice) {
